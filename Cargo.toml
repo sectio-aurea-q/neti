@@ -1,0 +1,20 @@
+[package]
+name = "eckart-ref"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sabrina Hackfort"]
+description = "Accurate Eckart tunnelling transmission coefficients without cancellation, with the small-barrier (cos) branch, validated against certified ball-arithmetic references"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/sectio-aurea-q/eckart-ref"
+keywords = ["tunnelling", "kinetics", "eckart", "chemistry", "numerics"]
+
+[lib]
+name = "eckart_ref"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "eckart-ref"
+path = "src/main.rs"
+
+[dependencies]
