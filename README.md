@@ -1,6 +1,10 @@
-# eckart-ref
+# NETI
 
-eckart-ref computes accurate Eckart tunnelling transmission coefficients κ(T) and checks
+*Named after Neti, the gatekeeper of the seven gates in Mesopotamian myth, who decides
+who passes through. Tunnelling is passage through a barrier that cannot be crossed
+classically.*
+
+NETI computes accurate Eckart tunnelling transmission coefficients κ(T) and checks
 them against certified ball-arithmetic enclosures.
 
 The Eckart barrier is the standard one-dimensional tunnelling correction in transition-state
@@ -14,7 +18,7 @@ theory, and most kinetics codes implement it. The usual arrangement,
    `cos(2π|d|)` (Johnston & Heicklen 1962; Brown 1981). Using `cosh` with `|…|` makes κ too
    small, sometimes below 1.
 
-eckart-ref fixes both, and avoids two further losses of accuracy:
+NETI fixes both, and avoids two further losses of accuracy:
 
 - **No cancellation in P.** It evaluates `P = 2 sinh A sinh B / (cosh(A+B) + D)` in log
   space, with the correct branch for D.
@@ -56,7 +60,7 @@ Reproduce:
 
 ```bash
 cargo build --release && cargo test --release
-python3 conformance/conformance.py          # eckart-ref against the certified grid
+python3 conformance/conformance.py          # NETI against the certified grid
 python3 validation/validate.py              # same, with statistics
 python3 examples/naive_form.py              # the textbook arrangement
 ```
@@ -66,30 +70,30 @@ python3 examples/naive_form.py              # the textbook arrangement
 Rust:
 
 ```rust
-let k = eckart_ref::kappa(v1, v2, u)?;          // barriers in k_B T, u = h nu / k_B T
-let k = eckart_ref::kappa_si(v1_j_mol, v2_j_mol, nu_cm, t_k)?;   // J/mol, J/mol, cm^-1, K
+let k = neti::kappa(v1, v2, u)?;          // barriers in k_B T, u = h nu / k_B T
+let k = neti::kappa_si(v1_j_mol, v2_j_mol, nu_cm, t_k)?;   // J/mol, J/mol, cm^-1, K
 println!("{} (ln {}, quad err {:.1e})", k.value, k.ln_value, k.quad_err);
-let p = eckart_ref::transmission_si(e_j_mol, v1_j_mol, v2_j_mol, nu_cm)?;  // P(E)
+let p = neti::transmission_si(e_j_mol, v1_j_mol, v2_j_mol, nu_cm)?;  // P(E)
 ```
 
 Python (ctypes; build the library first):
 
 ```python
-import eckart_ref as er          # python/eckart_ref.py
+import neti as er          # python/neti.py
 er.kappa(4.0, 4.0, 2.0)
 er.kappa_si(160e3, 160e3, -1200.0, 200.0)      # negative (imaginary) frequency is accepted
 er.kappa_full(800, 800, 400)                   # dict with value (inf here), ln_value, quad_err, ...
 ```
 
-C / C++ / Fortran: see `include/eckart_ref.h` and `examples/c_example.c`
-(`gcc -Iinclude examples/c_example.c -Ltarget/release -leckart_ref`).
+C / C++ / Fortran: see `include/neti.h` and `examples/c_example.c`
+(`gcc -Iinclude examples/c_example.c -Ltarget/release -lneti`).
 
 Command line:
 
 ```bash
-eckart-ref reduced 4 4 2
-eckart-ref si 160 160 1200 200          # kJ/mol, kJ/mol, cm^-1, K  (J/mol in the API)
-eckart-ref grid points.csv              # rows v1,v2,u; one output row per input row
+neti reduced 4 4 2
+neti si 160 160 1200 200          # kJ/mol, kJ/mol, cm^-1, K  (J/mol in the API)
+neti grid points.csv              # rows v1,v2,u; one output row per input row
 ```
 
 ## Conventions
@@ -126,7 +130,7 @@ How the certified grid was made:
 
 - This is the one-dimensional Eckart model. It is not multidimensional tunnelling,
   instanton theory or small-curvature tunnelling.
-- eckart-ref is validated against certified and independent high-precision values. It is
+- NETI is validated against certified and independent high-precision values. It is
   not a certified computation in every call. A ball-arithmetic mode for per-call enclosures
   is planned.
 - The certified grid covers α ≤ 100. Beyond that the evidence is the independent 50-digit
@@ -141,4 +145,4 @@ Tools: Rust, Arb / python-flint, mpmath, Claude.
 
 ## License
 
-Apache-2.0. If you use eckart-ref or its reference grid in published work, please cite it (see `CITATION.cff`).
+Apache-2.0. If you use NETI or its reference grid in published work, please cite it (see `CITATION.cff`).

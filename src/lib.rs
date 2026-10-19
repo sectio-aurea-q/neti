@@ -1,4 +1,4 @@
-//! # eckart-ref
+//! # NETI
 //!
 //! Eckart tunnelling transmission coefficient κ(T) computed without the two numerical
 //! defects found in many implementations:
@@ -360,39 +360,39 @@ pub fn transmission_si(e_j_mol: f64, v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64) -
 // Return codes: 0 ok, 1 invalid input, 2 no convergence / overflow. On error *value = NaN.
 
 #[repr(C)]
-pub struct EckartResult { pub value: f64, pub ln_value: f64, pub quad_err: f64, pub tail_bound: f64, pub cos_branch: i32, pub evals: u64 }
+pub struct NetiResult { pub value: f64, pub ln_value: f64, pub quad_err: f64, pub tail_bound: f64, pub cos_branch: i32, pub evals: u64 }
 
-fn to_c(r: Result<Kappa, EckartError>, out: *mut EckartResult) -> i32 {
+fn to_c(r: Result<Kappa, EckartError>, out: *mut NetiResult) -> i32 {
     let (code, k) = match r {
         Ok(k) => (0, k),
         Err(e) => (if matches!(e, EckartError::NoConvergence) { 2 } else { 1 },
                    Kappa { value: f64::NAN, ln_value: f64::NAN, quad_err: f64::NAN, tail_bound: f64::NAN, cos_branch: false, evals: 0 }),
     };
     if !out.is_null() {
-        unsafe { *out = EckartResult { value: k.value, ln_value: k.ln_value, quad_err: k.quad_err, tail_bound: k.tail_bound, cos_branch: k.cos_branch as i32, evals: k.evals as u64 }; }
+        unsafe { *out = NetiResult { value: k.value, ln_value: k.ln_value, quad_err: k.quad_err, tail_bound: k.tail_bound, cos_branch: k.cos_branch as i32, evals: k.evals as u64 }; }
     }
     code
 }
 
 /// Reduced-unit κ (barriers in k_B T, u = hν/k_B T).
 #[no_mangle]
-pub extern "C" fn eckart_kappa(v1: f64, v2: f64, u: f64, out: *mut EckartResult) -> i32 { to_c(kappa(v1, v2, u), out) }
+pub extern "C" fn neti_kappa(v1: f64, v2: f64, u: f64, out: *mut NetiResult) -> i32 { to_c(kappa(v1, v2, u), out) }
 
 /// SI-unit κ: barriers in J/mol, imaginary frequency in cm⁻¹ (sign ignored), T in K.
 #[no_mangle]
-pub extern "C" fn eckart_kappa_si(v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64, t_k: f64, out: *mut EckartResult) -> i32 {
+pub extern "C" fn neti_kappa_si(v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64, t_k: f64, out: *mut NetiResult) -> i32 {
     to_c(kappa_si(v1_j_mol, v2_j_mol, nu_cm, t_k), out)
 }
 
 /// ln P(ε) in reduced units (ε above the higher asymptote in k_B T). NaN on invalid input.
 #[no_mangle]
-pub extern "C" fn eckart_log_transmission(v1: f64, v2: f64, u: f64, eps: f64) -> f64 {
+pub extern "C" fn neti_log_transmission(v1: f64, v2: f64, u: f64, eps: f64) -> f64 {
     match Barrier::new(v1, v2, u) { Ok(b) => b.log_transmission(eps), Err(_) => f64::NAN }
 }
 
 /// P(E) in SI units (E, V1, V2 in J/mol, E from the higher asymptote; ν in cm⁻¹). NaN on invalid input.
 #[no_mangle]
-pub extern "C" fn eckart_transmission_si(e_j_mol: f64, v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64) -> f64 {
+pub extern "C" fn neti_transmission_si(e_j_mol: f64, v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64) -> f64 {
     transmission_si(e_j_mol, v1_j_mol, v2_j_mol, nu_cm).unwrap_or(f64::NAN)
 }
 

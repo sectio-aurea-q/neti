@@ -1,11 +1,11 @@
 cff-version: 1.2.0
-message: "If you use eckart-ref or its certified reference grid, please cite it as below."
-title: "eckart-ref: accurate Eckart tunnelling coefficients validated against certified ball-arithmetic references"
+message: "If you use NETI or its certified reference grid, please cite it as below."
+title: "NETI: accurate Eckart tunnelling coefficients validated against certified ball-arithmetic references"
 authors:
   - family-names: Hackfort
     given-names: Sabrina
     orcid: "https://orcid.org/0009-0007-7458-2487"
-repository-code: "https://github.com/sectio-aurea-q/eckart-ref"
+repository-code: "https://github.com/sectio-aurea-q/neti"
 license: Apache-2.0
 version: 0.1.0
 keywords:

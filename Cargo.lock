@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "eckart-ref"
+name = "neti-eckart"
 version = "0.1.0"

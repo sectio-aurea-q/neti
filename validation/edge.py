@@ -23,7 +23,7 @@ for name, v1, v2, u in cases:
         if k is None: raise RuntimeError("no enclosure")
     except Exception as e:
         print(name, "Arb failed", e); continue
-    out = subprocess.run(['../target/release/eckart-ref', 'reduced', repr(v1), repr(v2), repr(u)], capture_output=True, text=True).stdout
+    out = subprocess.run(['../target/release/neti', 'reduced', repr(v1), repr(v2), repr(u)], capture_output=True, text=True).stdout
     import json; r = json.loads(out)
     mid = float(k.mid()); rad = float(k.rad())
-    print(f"{name:26} ref={k.mid().str(17)} ±{rad/abs(mid):.1e}  eckart-ref={r['kappa']:.15e}  rel={abs(r['kappa']/mid-1):.1e}  cos={r['cos_branch']}  ({time.time()-t:.0f}s)")
+    print(f"{name:26} ref={k.mid().str(17)} ±{rad/abs(mid):.1e}  neti={r['kappa']:.15e}  rel={abs(r['kappa']/mid-1):.1e}  cos={r['cos_branch']}  ({time.time()-t:.0f}s)")

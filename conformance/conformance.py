@@ -11,7 +11,7 @@ Usage as a library:
         ...
     run(my_kappa, tol=1e-6)
 
-Usage from the shell (tests eckart-ref itself):
+Usage from the shell (tests NETI itself):
 
     python3 conformance.py
 """
@@ -50,6 +50,6 @@ def run(fn, tol=1e-6, show=10):
 if __name__ == "__main__":
     import sys
     sys.path.insert(0, os.path.join(HERE, "..", "python"))
-    import eckart_ref
-    ok = run(eckart_ref.kappa, tol=1e-12)
+    import neti
+    ok = run(neti.kappa, tol=1e-12)
     raise SystemExit(0 if ok else 1)
