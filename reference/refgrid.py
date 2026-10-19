@@ -1,23 +1,20 @@
-r"""
-Zertifiziertes Referenzgitter für den Eckart-Tunnelfaktor kappa.
+"""
+Certified reference grid for the Eckart tunnelling factor kappa.
 
-Parametrisierung wie Johnston & Heicklen (1962) und Brown (1981):
-    alpha_i = 2 pi V_i / (h nu),   u* = h nu / (k_B T),
-umgerechnet v_i = V_i/(k_B T) = alpha_i u* / (2 pi).
+Parametrisation as in Johnston & Heicklen (1962) and Brown (1981):
+    alpha_i = 2 pi V_i / (h nu),   u* = h nu / (k_B T),   v_i = V_i/(k_B T) = alpha_i u* / (2 pi).
+kappa is symmetric in (alpha1, alpha2); rows store alpha1 <= alpha2.
+Convention: kappa = exp(v_min) * int_{E >= higher asymptote} P(E) exp(-E/kT) dE/kT.
 
-kappa ist symmetrisch in (alpha1, alpha2); gespeichert wird alpha1 <= alpha2.
-Konvention: kappa = exp(v_min) * Integral_{E >= hoehere Asymptote} P(E) exp(-E/kT) dE/kT,
-Energie ab der höheren der beiden Asymptoten (Brown: E_0 = -min(V1,V2) ab Sattel).
+Domains
+  A  Brown's stated range: 0.5 <= alpha <= 20, 0 < u* <= 16,
+     u* <= 12 if alpha1 >= 8, u* <= 10 if alpha1 >= 16.
+  B  Extension: alpha up to 100, u* up to 30, u* down to 0.05, strong asymmetry.
+  Flagged: cos branch (4 alpha1 alpha2 < pi^2, d imaginary).
 
-Bereiche
-  A  Browns Gültigkeitsbereich: 0.5 <= alpha <= 20, 0 < u* <= 16,
-     u* <= 12 wenn alpha1 >= 8, u* <= 10 wenn alpha1 >= 16.
-  B  Erweiterung: alpha bis 100 (breite Barriere), u* bis 30 (tiefes Tunneln),
-     u* ab 0.05 (hohe Temperatur), starke Asymmetrie.
-  Markiert: cos-Ast (4 alpha1 alpha2 < pi^2, d imaginär).
-
-Jede Zeile ist eine Einschließung in Kugelarithmetik (Arb): der wahre Wert liegt
-beweisbar in [lo, hi]. Wiederaufnehmbar: fertige Punkte werden übersprungen.
+Each row is an Arb ball enclosure. Note: u* is passed as the IEEE double nearest to the
+decimal in the grid, so each enclosure is for that double value (see build_conformance.py).
+Resumable: finished points are skipped.
 """
 import csv, math, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

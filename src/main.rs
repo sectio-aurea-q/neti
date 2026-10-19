@@ -1,14 +1,14 @@
 //! eckart-ref command line
 //!   eckart-ref reduced <v1> <v2> <u>             barriers in k_B T, u = h nu / k_B T
-//!   eckart-ref si <V1 kJ/mol> <V2 kJ/mol> <nu cm^-1> <T K>
+//!   eckart-ref si <V1 kJ/mol> <V2 kJ/mol> <nu cm^-1> <T K>   (note: kJ/mol here, J/mol in the API)
 //!   eckart-ref grid <csv>                        rows: v1,v2,u  -> appends kappa
 use eckart_ref::{kappa, kappa_si, Kappa};
 use std::io::{BufRead, BufReader};
 
 fn print(k: &Kappa) {
     println!(
-        "{{\"kappa\": {:.17e}, \"quad_err\": {:.3e}, \"tail_bound\": {:.3e}, \"cos_branch\": {}, \"evals\": {}}}",
-        k.value, k.quad_err, k.tail_bound, k.cos_branch, k.evals
+        "{{\"kappa\": {:.17e}, \"ln_kappa\": {:.17e}, \"quad_err\": {:.3e}, \"tail_bound\": {:.3e}, \"cos_branch\": {}, \"evals\": {}}}",
+        k.value, k.ln_value, k.quad_err, k.tail_bound, k.cos_branch, k.evals
     );
 }
 
@@ -25,8 +25,10 @@ fn main() {
             let f = std::fs::File::open(&a[2]).unwrap_or_else(|e| { eprintln!("{e}"); std::process::exit(2) });
             for line in BufReader::new(f).lines().map_while(Result::ok) {
                 let p: Vec<&str> = line.split(',').collect();
-                if p.len() < 3 || p[0].trim().parse::<f64>().is_err() { continue; }
-                match kappa(num(p[0].trim()), num(p[1].trim()), num(p[2].trim())) {
+                if p.len() < 3 { continue; }
+                let parsed: Result<Vec<f64>, _> = p[..3].iter().map(|x| x.trim().parse::<f64>()).collect();
+                let Ok(v) = parsed else { println!("{},ERR not a number", line.trim()); continue; };
+                match kappa(v[0], v[1], v[2]) {
                     Ok(k) => println!("{},{},{},{:.17e},{:.3e}", p[0].trim(), p[1].trim(), p[2].trim(), k.value, k.quad_err),
                     Err(e) => println!("{},{},{},ERR {}", p[0].trim(), p[1].trim(), p[2].trim(), e),
                 }

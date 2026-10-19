@@ -1,5 +1,5 @@
-"""Nachrechnung aller Referenzpunkte, die gescheitert oder unscharf (rel. Radius > 1e-10) sind,
-mit kappa_sq (Substitution t = s^2). Gleiches Schema, Datei eckart_reference_repair.csv."""
+"""Recompute every reference point that failed or has relative radius > 1e-10 with
+kappa_sq (t = s^2 substitution). Same columns; writes eckart_reference_repair.csv."""
 import csv, os, sys, time
 HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
 from kappa_sq import kappa_sq

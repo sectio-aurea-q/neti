@@ -1,14 +1,11 @@
-r"""
-kappa wie kappa_only.kappa, aber mit der Substitution t = s^2:
+"""Certified kappa as in kappa_only.py, but with the substitution t = s^2:
 
-    kappa = e^{v_min} * Integral_0^inf Ptilde(s^2) e^{-s^2} 2 s ds.
+    kappa = e^{v_min} * int_0^inf P(s^2) e^{-s^2} 2 s ds.
 
-Grund: Ptilde enthält sqrt(t); am Integrationsanfang t = 0 ist das ein Verzweigungspunkt,
-und bei sehr kleinem u* (winzige v_i) erschöpft die adaptive Integration dort ihre
-Auswertungsgrenze. Nach t = s^2 ist sqrt(t) = s glatt; sqrt(t + Delta) = sqrt(s^2 + Delta)
-hat Verzweigungspunkte nur bei s = +-i sqrt(Delta), abseits der reellen Achse.
-Gleiche Schwanzschranke: Integral_{S0}^inf ... <= e^{-S0^2}.
-Zusätzlich wird [0, S0] an festen Stellen geteilt.
+P contains sqrt(t), a branch point at t = 0 where adaptive ball integration can exhaust its
+evaluation limit for very small barriers. After t = s^2 the integrand is smooth on the real
+axis. Same tail bound. Used to recompute grid points that failed or were not sharp enough
+(repair.py).
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -16,17 +16,12 @@ NAN = acb("nan")
 # ----------------------------------------------------------------- Integrand
 
 def _cosh(z):
-    """cosh, einheitlich fuer acb und acb_series (acb_series hat kein cosh)."""
+    """cosh for acb and acb_series alike (acb_series has no cosh)."""
     return (z.exp() + (-z).exp()) / 2
 
 
 def _c(x):
-    """nach acb wandeln, Potenzreihen aber unangetastet lassen.
-
-    Damit ist Ptilde typneutral: Reihenvariable darf u SEIN (Taylor in der
-    Frequenz) ODER v_min (Taylor in der Rueckbarriere).  Vorher erzwang eine
-    acb()-Wandlung den ersten Fall.
-    """
+    """Convert to acb, but leave power series untouched (so Ptilde works for series in u or v_min)."""
     return x if isinstance(x, acb_series) else acb(x)
 
 
@@ -35,14 +30,11 @@ def _G(vmin, vmax):
 
 
 def Ptilde(t, vmin, dlt, w):
-    """Durchlasswahrscheinlichkeit in t-Koordinate.
+    """Transmission probability at energy t (in k_B T) above the higher asymptote.
 
-    t            acb, >= 0 (darf 0 enthalten)
-    vmin, dlt    kleinere Barriere und Abstand, acb/arb oder acb_series
-    w            die Frequenzvariable u, acb/arb oder acb_series
-
-    Genau eine der Groessen vmin/dlt bzw. w traegt die Reihenvariable; die
-    t-Abhaengigkeit steht ausserhalb jeder Reihenoperation.
+    t            acb, >= 0 (may contain 0)
+    vmin, dlt    smaller barrier and barrier difference (acb/arb or acb_series)
+    w            u = h nu / k_B T (acb/arb or acb_series)
     """
     pi = acb.pi()
     vmax = vmin + dlt

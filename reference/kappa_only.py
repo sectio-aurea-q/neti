@@ -1,18 +1,8 @@
-r"""
-Zertifiziertes kappa allein -- ohne Ableitungen, also ohne Potenzreihen.
+"""Certified kappa (Arb ball arithmetic) by direct integration in t = energy/k_B T.
 
-Gebraucht fuer den Pruefsatz gegen Arkane: dort ist u = h nu/(k_B T) oft weit unter 1
-(hohe Temperatur, niedrige Sattelfrequenz), und in diesem Bereich bricht die
-Reihenrechnung fuer die Ableitungen zusammen. kappa selbst braucht sie nicht.
-
-Schwanz: fuer t >= T0 gilt |1 - Ptilde| <= 1 (Ptilde ist eine Wahrscheinlichkeit,
-0 <= Ptilde <= 1 fuer reelles t), also
-
-    int_T0^inf Ptilde e^{-t} dt  in  [0, e^{-T0}]
-
-Das ist grob, aber bei T0 = 60 ist e^{-60} = 8,8e-27 und damit weit unter jeder
-hier interessierenden Genauigkeit. Das Lemma aus cert2.py liefert es schaerfer,
-braucht aber eine Scheibe in u; hier genuegt die elementare Schranke.
+Tail: P <= 1 for real t, so int_T0^inf P e^{-t} dt lies in [0, e^{-T0}]; with
+T0 = v_min + 50 the absolute error in kappa is at most e^{-50}.
+Used for the first pass of the reference grid (refgrid.py).
 """
 import os, sys, flint
 from flint import arb, acb
@@ -22,15 +12,7 @@ from ptilde import Ptilde
 NAN = acb("nan")
 
 def kappa(v1, v2, u, margin=50.0):
-    """kappa = e^{v_min} int_0^inf Ptilde e^{-t} dt.
-
-    T0 MUSS mit v_min skalieren. Der Schwanz ist int_T0^inf Ptilde e^{-t} dt in
-    [0, e^{-T0}], also der absolute Fehler in kappa hoechstens e^{v_min - T0}.
-    Ein festes T0 = 60 ergibt bei v_min = 82,9 (Gasphasenbarriere bei niedriger
-    Temperatur) einen Fehler von e^{22,9} ~ 1e10 -- und die Masse des Integranden
-    sitzt dort ohnehin erst bei t ~ 56. Mit T0 = v_min + 50 ist der Fehler
-    e^{-50} = 2e-22.
-    """
+    """kappa = e^{v_min} int_0^inf P e^{-t} dt; T0 = v_min + margin, so the tail error is at most e^{-margin}."""
     v1, v2, u = arb(v1), arb(v2), arb(u)
     vmin = v1 if float(v1) <= float(v2) else v2
     vmax = v2 if float(v1) <= float(v2) else v1

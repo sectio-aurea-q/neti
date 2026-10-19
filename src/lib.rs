@@ -1,7 +1,7 @@
 //! # eckart-ref
 //!
 //! Eckart tunnelling transmission coefficient κ(T) computed without the two numerical
-//! defects found in most implementations (see the audit in this repository):
+//! defects found in many implementations:
 //!
 //! 1. **No cancellation.** The transmission probability is evaluated as
 //!    `P = 2 sinh(A) sinh(B) / (cosh(A+B) + D)` in log space, instead of
@@ -12,9 +12,8 @@
 //!
 //! The thermal average is integrated with adaptive Gauss–Kronrod (7/15) quadrature in the
 //! variable `t = sqrt(ε)`, which removes the square-root behaviour at the threshold. The
-//! integral is truncated at `ε_max = v_min + 80`; since `P ≤ 1`, the omitted tail is
-//! rigorously bounded by `exp(v_min − ε_max) = exp(−80)` (in units of κ's integrand) and
-//! is reported.
+//! integral is truncated at `ε_max = v_min + 80`; since `P ≤ 1`, the omitted tail of κ is
+//! rigorously bounded by `exp(v_min − ε_max) = exp(−80)` (absolute) and is reported.
 //!
 //! ## Conventions (Johnston & Heicklen 1962, Brown 1981)
 //! * `v1`, `v2`: barrier heights from the reactant and product sides, in units of k_B T (> 0).
@@ -40,8 +39,10 @@ pub mod si {
 pub struct Kappa {
     /// κ(T)
     pub value: f64,
-    /// Quadrature error estimate (absolute), sum of |Kronrod − Gauss| over panels.
-    /// Conservative: the Kronrod result is normally far more accurate than this.
+    /// ln κ (finite even when κ overflows f64).
+    pub ln_value: f64,
+    /// QUADPACK-style quadrature error estimate (absolute). An estimate, not a bound;
+    /// it includes a floor of 50·ε_mach·|κ| for rounding in the integrand.
     pub quad_err: f64,
     /// Rigorous upper bound on the truncated tail (absolute).
     pub tail_bound: f64,
@@ -63,7 +64,7 @@ impl std::fmt::Display for EckartError {
         match self {
             EckartError::NonPositive(s) => write!(f, "{s} must be > 0"),
             EckartError::NotFinite(s) => write!(f, "{s} must be finite"),
-            EckartError::NoConvergence => write!(f, "quadrature did not converge"),
+            EckartError::NoConvergence => write!(f, "quadrature did not converge within the evaluation limit"),
         }
     }
 }
@@ -86,6 +87,12 @@ fn log_add_exp(x: f64, y: f64) -> f64 {
     if x > y { x + (y - x).exp().ln_1p() } else { y + (x - y).exp().ln_1p() }
 }
 
+fn check(x: f64, name: &'static str) -> Result<(), EckartError> {
+    if !x.is_finite() { return Err(EckartError::NotFinite(name)); }
+    if !(x > 0.0) { return Err(EckartError::NonPositive(name)); }
+    Ok(())
+}
+
 /// Precomputed barrier geometry.
 #[derive(Debug, Clone, Copy)]
 pub struct Barrier {
@@ -100,10 +107,7 @@ pub struct Barrier {
 
 impl Barrier {
     pub fn new(v1: f64, v2: f64, u: f64) -> Result<Self, EckartError> {
-        for (x, n) in [(v1, "v1"), (v2, "v2"), (u, "u")] {
-            if !x.is_finite() { return Err(EckartError::NotFinite(n)); }
-            if !(x > 0.0) { return Err(EckartError::NonPositive(n)); }
-        }
+        check(v1, "v1")?; check(v2, "v2")?; check(u, "u")?;
         let (lo, hi) = if v1 <= v2 { (v1, v2) } else { (v2, v1) };
         let k = 2.0 * PI / u;
         let a_lo = k * lo;
@@ -131,33 +135,56 @@ impl Barrier {
 
     pub fn cos_branch(&self) -> bool { self.q < 0.0 }
 
-    /// log P(ε), ε = energy above the higher asymptote in units of k_B T.
-    pub fn log_transmission(&self, eps: f64) -> f64 {
-        if !(eps > 0.0) { return f64::NEG_INFINITY; }
+    /// ln of the two denominators' common form: ln(cosh(x) + D) for x ≥ 0.
+    #[inline]
+    fn log_cosh_plus_d(&self, x: f64) -> f64 {
+        if self.q >= 0.0 {
+            log_add_exp(log_cosh(x), self.log_d)
+        } else {
+            // cosh(x) + cos(2π|d|) = 2 sinh²(x/2) + 2 cos²(π|d|): two non-negative terms,
+            // no cancellation even when cos(2π|d|) is close to −1.
+            std::f64::consts::LN_2 + log_add_exp(2.0 * log_sinh_or_neginf(0.5 * x), self.log_cos2)
+        }
+    }
+
+    /// (ln P, ln(1 − P)) at ε (energy above the higher asymptote, units of k_B T).
+    ///
+    /// P = 2 sinh A sinh B / (cosh(A+B) + D) and 1 − P = (cosh(A−B) + D)/(cosh(A+B) + D).
+    /// Whichever of P, 1 − P is smaller is computed directly; the other via log1p/expm1,
+    /// so both are accurate to a few ulp over the whole range.
+    pub fn log_p_and_q(&self, eps: f64) -> (f64, f64) {
+        if eps.is_nan() { return (f64::NAN, f64::NAN); }
+        if eps <= 0.0 { return (f64::NEG_INFINITY, 0.0); }
         let a = 2.0 * (self.k * eps).sqrt() * self.inv_s;
         let b = 2.0 * (self.d_alpha + self.k * eps).sqrt() * self.inv_s;
-        let log_num = std::f64::consts::LN_2 + log_sinh(a) + log_sinh(b);
-        let log_den = if self.q >= 0.0 {
-            log_add_exp(log_cosh(a + b), self.log_d)
+        let log_den = self.log_cosh_plus_d(a + b);
+        let log_p = std::f64::consts::LN_2 + log_sinh(a) + log_sinh(b) - log_den;
+        if log_p < -std::f64::consts::LN_2 {
+            (log_p, (-log_p.exp()).ln_1p())
         } else {
-            // cosh(S) + cos(2π|d|) = 2 sinh²(S/2) + 2 cos²(π|d|): two non-negative terms,
-            // no cancellation even when cos(2π|d|) is close to −1.
-            std::f64::consts::LN_2 + log_add_exp(2.0 * log_sinh(0.5 * (a + b)), self.log_cos2)
-        };
-        (log_num - log_den).min(0.0)
+            let log_q = self.log_cosh_plus_d((a - b).abs()) - log_den;
+            let log_q = if log_q > 0.0 { 0.0 } else { log_q };
+            (( -log_q.exp_m1()).ln(), log_q)
+        }
     }
 
-    /// P(ε)
+    /// ln P(ε). NaN for NaN input, −∞ for ε ≤ 0.
+    pub fn log_transmission(&self, eps: f64) -> f64 { self.log_p_and_q(eps).0 }
+
+    /// P(ε), ε above the higher asymptote in units of k_B T.
     pub fn transmission(&self, eps: f64) -> f64 { self.log_transmission(eps).exp() }
 
-    /// Integrand in t = sqrt(ε): 2 t P(t²) exp(v_min − t²)
+    /// ln of the integrand in t = sqrt(ε): ln(2t) + ln P(t²) + v_min − t²
     #[inline]
-    fn integrand_t(&self, t: f64) -> f64 {
-        if t <= 0.0 { return 0.0; }
+    fn log_integrand_t(&self, t: f64) -> f64 {
+        if t <= 0.0 { return f64::NEG_INFINITY; }
         let e = t * t;
-        2.0 * t * (self.log_transmission(e) + self.v_min - e).exp()
+        (2.0 * t).ln() + self.log_transmission(e) + self.v_min - e
     }
 }
+
+#[inline]
+fn log_sinh_or_neginf(x: f64) -> f64 { if x > 0.0 { log_sinh(x) } else { f64::NEG_INFINITY } }
 
 // Gauss–Kronrod 7/15 nodes and weights (QUADPACK qk15).
 const XGK: [f64; 8] = [
@@ -187,123 +214,186 @@ const WG: [f64; 4] = [
     0.417_959_183_673_469_387_755_102_040_816_327,
 ];
 
-/// One G7/K15 step on [a, b]: (Kronrod estimate, |Kronrod − Gauss|)
-pub fn gk15<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64) -> (f64, f64) {
+/// One G7/K15 step on [a, b] with the QUADPACK (qk15) error estimate.
+/// Returns (result, abs error estimate, resabs).
+pub fn gk15<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64) -> (f64, f64, f64) {
     let c = 0.5 * (a + b);
     let h = 0.5 * (b - a);
+    let mut fv1 = [0.0; 7];
+    let mut fv2 = [0.0; 7];
     let fc = f(c);
-    let mut k = fc * WGK[7];
-    let mut g = fc * WG[3];
+    let mut resk = fc * WGK[7];
+    let mut resg = fc * WG[3];
+    let mut resabs = fc.abs() * WGK[7];
     for j in 0..7 {
         let x = h * XGK[j];
-        let s = f(c - x) + f(c + x);
-        k += WGK[j] * s;
-        if j % 2 == 1 { g += WG[j / 2] * s; }
+        let (f1, f2) = (f(c - x), f(c + x));
+        fv1[j] = f1; fv2[j] = f2;
+        resk += WGK[j] * (f1 + f2);
+        resabs += WGK[j] * (f1.abs() + f2.abs());
+        if j % 2 == 1 { resg += WG[j / 2] * (f1 + f2); }
     }
-    (k * h, ((k - g) * h).abs())
+    let reskh = resk * 0.5;
+    let mut resasc = WGK[7] * (fc - reskh).abs();
+    for j in 0..7 { resasc += WGK[j] * ((fv1[j] - reskh).abs() + (fv2[j] - reskh).abs()); }
+    let (result, resabs, resasc) = (resk * h, resabs * h.abs(), resasc * h.abs());
+    let mut err = ((resk - resg) * h).abs();
+    if resasc != 0.0 && err != 0.0 { err = resasc * (1.0f64).min((200.0 * err / resasc).powf(1.5)); }
+    let floor = 50.0 * f64::EPSILON * resabs;
+    if resabs > f64::MIN_POSITIVE / (50.0 * f64::EPSILON) { err = err.max(floor); }
+    (result, err, resabs)
 }
 
-fn adapt<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64, depth: u32, evals: &mut usize) -> Result<(f64, f64), EckartError> {
-    let (k, e) = gk15(f, a, b);
-    *evals += 15;
-    if e <= tol || depth == 0 || (b - a) <= f64::EPSILON * a.abs().max(1.0) * 16.0 {
-        if depth == 0 && e > tol * 1e3 { return Err(EckartError::NoConvergence); }
-        return Ok((k, e));
-    }
-    let m = 0.5 * (a + b);
-    let (k1, e1) = adapt(f, a, m, 0.5 * tol, depth - 1, evals)?;
-    let (k2, e2) = adapt(f, m, b, 0.5 * tol, depth - 1, evals)?;
-    Ok((k1 + k2, e1 + e2))
-}
-
-/// Relative tolerance used by [`kappa`].
+/// Relative tolerance requested from the quadrature (a floor of 50 ε_mach applies).
 pub const REL_TOL: f64 = 1e-13;
 /// Truncation distance above v_min (in k_B T).
 pub const TAIL: f64 = 80.0;
+/// Maximum integrand evaluations per κ.
+pub const MAX_EVALS: usize = 200_000;
+
+struct Panel { a: f64, b: f64, val: f64, err: f64 }
+
+/// Global adaptive Gauss–Kronrod (QAG-like): always bisect the panel with the largest error.
+fn qag<F: Fn(f64) -> f64>(f: &F, breaks: &[f64], rel_tol: f64) -> Result<(f64, f64, usize), EckartError> {
+    let mut panels: Vec<Panel> = Vec::new();
+    let mut evals = 0usize;
+    for w in breaks.windows(2) {
+        let (v, e, _) = gk15(f, w[0], w[1]);
+        evals += 15;
+        panels.push(Panel { a: w[0], b: w[1], val: v, err: e });
+    }
+    loop {
+        let total: f64 = panels.iter().map(|p| p.val).sum();
+        let err: f64 = panels.iter().map(|p| p.err).sum();
+        if !total.is_finite() || !err.is_finite() { return Err(EckartError::NoConvergence); }
+        let floor = 64.0 * f64::EPSILON * total.abs();
+        if err <= (rel_tol * total.abs()).max(floor) { return Ok((total, err, evals)); }
+        if evals >= MAX_EVALS {
+            // accept if the remaining error is at the rounding level of the integrand
+            if err <= 1e3 * floor { return Ok((total, err, evals)); }
+            return Err(EckartError::NoConvergence);
+        }
+        let (i, _) = panels.iter().enumerate().fold((0, -1.0), |acc, (i, p)| if p.err > acc.1 { (i, p.err) } else { acc });
+        let p = panels.swap_remove(i);
+        let m = 0.5 * (p.a + p.b);
+        if !(m > p.a && m < p.b) {
+            // cannot split further: keep it as is but stop refining it
+            panels.push(Panel { err: 0.0, ..p });
+            continue;
+        }
+        let (v1, e1, _) = gk15(f, p.a, m);
+        let (v2, e2, _) = gk15(f, m, p.b);
+        evals += 30;
+        panels.push(Panel { a: p.a, b: m, val: v1, err: e1 });
+        panels.push(Panel { a: m, b: p.b, val: v2, err: e2 });
+    }
+}
 
 /// κ in reduced units: barrier heights v1, v2 (in k_B T) and u = hν/(k_B T).
 pub fn kappa(v1: f64, v2: f64, u: f64) -> Result<Kappa, EckartError> {
     let bar = Barrier::new(v1, v2, u)?;
-    let f = |t: f64| bar.integrand_t(t);
     let vm = bar.v_min;
     let eps_max = vm + TAIL;
-    // breakpoints in ε: threshold region, around the barrier top, tail
-    // (scaled with the barrier, plus fixed points in units of k_B T for small barriers)
+    // breakpoints in ε (scaled with the barrier, plus fixed points in k_B T for small barriers)
     let mut cand: Vec<f64> = vec![0.25 * vm, 0.5 * vm, 0.75 * vm, 0.9 * vm, vm, 1.1 * vm,
                                   vm + 2.0, vm + 8.0, vm + 25.0, 0.5, 2.0, 5.0, 12.0, 30.0];
+    // around the barrier top P rises from 0 to 1 over a width of about u/(2π) k_B T
+    // (parabolic limit); for wide barriers at high T this is far narrower than the panels
+    let w = u / (2.0 * PI);
+    for n in [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0] { cand.push(vm - n * w); cand.push(vm + n * w); }
     cand.retain(|&x| x > 0.0 && x < eps_max);
     cand.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mut br: Vec<f64> = vec![0.0];
-    for x in cand {
-        if x > *br.last().unwrap() * (1.0 + 1e-9) { br.push(x); }
-    }
+    for x in cand { if x > *br.last().unwrap() * (1.0 + 1e-9) { br.push(x); } }
     br.push(eps_max);
     let ts: Vec<f64> = br.iter().map(|e| e.sqrt()).collect();
-    // first pass to get the scale for the tolerance
-    let mut evals = 0usize;
-    let mut rough = 0.0;
-    for w in ts.windows(2) { rough += gk15(&f, w[0], w[1]).0; evals += 15; }
-    let tol_total = REL_TOL * rough.abs().max(f64::MIN_POSITIVE);
-    let mut val = 0.0;
-    let mut err = 0.0;
-    let n = (ts.len() - 1) as f64;
+    // scale: integrate exp(log f − c) with c ≈ max log f, so neither overflow nor underflow occurs
+    let mut c = f64::NEG_INFINITY;
     for w in ts.windows(2) {
-        let (k, e) = adapt(&f, w[0], w[1], tol_total / n, 40, &mut evals)?;
-        val += k;
-        err += e;
+        for j in 1..8 { c = c.max(bar.log_integrand_t(w[0] + (w[1] - w[0]) * j as f64 / 8.0)); }
     }
-    Ok(Kappa { value: val, quad_err: err, tail_bound: (vm - eps_max).exp(), cos_branch: bar.cos_branch(), evals })
+    if !c.is_finite() { return Err(EckartError::NoConvergence); }
+    let f = |t: f64| (bar.log_integrand_t(t) - c).exp();
+    let (val, err, evals) = qag(&f, &ts, REL_TOL)?;
+    let ln_value = c + val.ln();
+    let scale = c.exp();
+    Ok(Kappa {
+        value: ln_value.exp(),
+        ln_value,
+        quad_err: if scale.is_finite() { err * scale } else { f64::INFINITY },
+        tail_bound: (vm - eps_max).exp(),
+        cos_branch: bar.cos_branch(),
+        evals,
+    })
 }
 
 /// κ in SI-style units: barrier heights in J/mol from the reactant (`v1_j_mol`) and product
-/// (`v2_j_mol`) sides, |imaginary frequency| in cm⁻¹, temperature in K. CODATA 2018 constants.
+/// (`v2_j_mol`) sides, imaginary frequency in cm⁻¹ (sign ignored), temperature in K.
+/// Exact SI constants (CODATA 2018/2022). Pass zero-point-corrected barriers if you want the
+/// usual ZPE-corrected Eckart model; the library does not add or remove ZPE.
 pub fn kappa_si(v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64, t_k: f64) -> Result<Kappa, EckartError> {
-    if !(t_k > 0.0) { return Err(EckartError::NonPositive("T")); }
+    check(t_k, "T")?;
+    check(v1_j_mol, "V1")?;
+    check(v2_j_mol, "V2")?;
+    if !nu_cm.is_finite() { return Err(EckartError::NotFinite("nu")); }
+    let nu = nu_cm.abs();
+    if !(nu > 0.0) { return Err(EckartError::NonPositive("|nu|")); }
     let rt = si::R * t_k;
-    let u = si::H * si::C * 100.0 * nu_cm / (si::KB * t_k);
+    let u = si::H * si::C * 100.0 * nu / (si::KB * t_k);
     kappa(v1_j_mol / rt, v2_j_mol / rt, u)
 }
 
+/// Microcanonical P(E) in SI units: E in J/mol measured from the higher asymptote, barriers in
+/// J/mol, imaginary frequency in cm⁻¹ (sign ignored). Independent of temperature.
+pub fn transmission_si(e_j_mol: f64, v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64) -> Result<f64, EckartError> {
+    check(v1_j_mol, "V1")?;
+    check(v2_j_mol, "V2")?;
+    let nu = nu_cm.abs();
+    check(nu, "|nu|")?;
+    // reduced units with an arbitrary reference energy (here: hν), P is scale-invariant
+    let hnu = si::H * si::C * 100.0 * nu * si::NA; // J/mol
+    let bar = Barrier::new(v1_j_mol / hnu, v2_j_mol / hnu, 1.0)?;
+    Ok(bar.transmission(e_j_mol / hnu))
+}
+
 // ─── C ABI (for C, C++, Fortran, Python ctypes) ─────────────────────────────
+// Return codes: 0 ok, 1 invalid input, 2 no convergence / overflow. On error *value = NaN.
 
-/// Reduced-unit κ. Returns 0 on success, 1 on invalid input, 2 on non-convergence.
-/// `value` and `quad_err` may be null.
-#[no_mangle]
-pub extern "C" fn eckart_kappa(v1: f64, v2: f64, u: f64, value: *mut f64, quad_err: *mut f64) -> i32 {
-    match kappa(v1, v2, u) {
-        Ok(k) => {
-            unsafe {
-                if !value.is_null() { *value = k.value; }
-                if !quad_err.is_null() { *quad_err = k.quad_err; }
-            }
-            0
-        }
-        Err(EckartError::NoConvergence) => 2,
-        Err(_) => 1,
+#[repr(C)]
+pub struct EckartResult { pub value: f64, pub ln_value: f64, pub quad_err: f64, pub tail_bound: f64, pub cos_branch: i32, pub evals: u64 }
+
+fn to_c(r: Result<Kappa, EckartError>, out: *mut EckartResult) -> i32 {
+    let (code, k) = match r {
+        Ok(k) => (0, k),
+        Err(e) => (if matches!(e, EckartError::NoConvergence) { 2 } else { 1 },
+                   Kappa { value: f64::NAN, ln_value: f64::NAN, quad_err: f64::NAN, tail_bound: f64::NAN, cos_branch: false, evals: 0 }),
+    };
+    if !out.is_null() {
+        unsafe { *out = EckartResult { value: k.value, ln_value: k.ln_value, quad_err: k.quad_err, tail_bound: k.tail_bound, cos_branch: k.cos_branch as i32, evals: k.evals as u64 }; }
     }
+    code
 }
 
-/// SI-unit κ: barriers in J/mol, |imaginary frequency| in cm⁻¹, T in K (CODATA 2018).
+/// Reduced-unit κ (barriers in k_B T, u = hν/k_B T).
 #[no_mangle]
-pub extern "C" fn eckart_kappa_si(v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64, t_k: f64, value: *mut f64, quad_err: *mut f64) -> i32 {
-    match kappa_si(v1_j_mol, v2_j_mol, nu_cm, t_k) {
-        Ok(k) => {
-            unsafe {
-                if !value.is_null() { *value = k.value; }
-                if !quad_err.is_null() { *quad_err = k.quad_err; }
-            }
-            0
-        }
-        Err(EckartError::NoConvergence) => 2,
-        Err(_) => 1,
-    }
+pub extern "C" fn eckart_kappa(v1: f64, v2: f64, u: f64, out: *mut EckartResult) -> i32 { to_c(kappa(v1, v2, u), out) }
+
+/// SI-unit κ: barriers in J/mol, imaginary frequency in cm⁻¹ (sign ignored), T in K.
+#[no_mangle]
+pub extern "C" fn eckart_kappa_si(v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64, t_k: f64, out: *mut EckartResult) -> i32 {
+    to_c(kappa_si(v1_j_mol, v2_j_mol, nu_cm, t_k), out)
 }
 
-/// Transmission probability P(ε), ε above the higher asymptote in units of k_B T.
-/// Returns NaN on invalid barrier parameters.
+/// ln P(ε) in reduced units (ε above the higher asymptote in k_B T). NaN on invalid input.
 #[no_mangle]
-pub extern "C" fn eckart_transmission(v1: f64, v2: f64, u: f64, eps: f64) -> f64 {
-    match Barrier::new(v1, v2, u) { Ok(b) => b.transmission(eps), Err(_) => f64::NAN }
+pub extern "C" fn eckart_log_transmission(v1: f64, v2: f64, u: f64, eps: f64) -> f64 {
+    match Barrier::new(v1, v2, u) { Ok(b) => b.log_transmission(eps), Err(_) => f64::NAN }
+}
+
+/// P(E) in SI units (E, V1, V2 in J/mol, E from the higher asymptote; ν in cm⁻¹). NaN on invalid input.
+#[no_mangle]
+pub extern "C" fn eckart_transmission_si(e_j_mol: f64, v1_j_mol: f64, v2_j_mol: f64, nu_cm: f64) -> f64 {
+    transmission_si(e_j_mol, v1_j_mol, v2_j_mol, nu_cm).unwrap_or(f64::NAN)
 }
 
 #[cfg(test)]
@@ -315,7 +405,7 @@ mod tests {
         // Kronrod-15 is exact up to degree 22 (Gauss-7 up to 13).
         for deg in 0..=22u32 {
             let f = |x: f64| x.powi(deg as i32);
-            let (k, _) = gk15(&f, 0.0, 1.0);
+            let (k, _, _) = gk15(&f, 0.0, 1.0);
             let exact = 1.0 / (deg as f64 + 1.0);
             assert!((k - exact).abs() < 1e-14, "degree {deg}: {k} vs {exact}");
         }
@@ -365,5 +455,36 @@ mod tests {
         assert!((k.value / 1.001_000_425_104_319_4 - 1.0).abs() < 1e-14); // 50-digit mpmath
         assert!(k.evals < 5_000, "evals {}", k.evals);
         assert!(kappa(1e-8, 1e-8, 0.5).is_ok());
+    }
+    /// Wide barriers at high temperature: P rises from 0 to 1 within ~u/(2π) of the barrier
+    /// top. Values from an independent 50-digit reference (validation/independent_mpmath_ref.py).
+    #[test]
+    fn wide_barriers_high_temperature() {
+        for (v1, v2, u, exact) in [(500.0, 500.0, 0.01, 1.000_004_175_012_131_9), (250.0, 250.0, 0.0123, 1.000_006_328_992_720_4)] {
+            let k = kappa(v1, v2, u).unwrap();
+            assert!((k.value / exact - 1.0).abs() < 1e-13, "({v1},{v2},{u}): {} vs {exact}", k.value);
+            assert!(k.evals < MAX_EVALS);
+        }
+    }
+
+    #[test]
+    fn huge_kappa_reports_ln_instead_of_hanging() {
+        let k = kappa(800.0, 800.0, 400.0).unwrap();
+        assert!(k.value.is_infinite() && k.ln_value.is_finite() && k.ln_value > 700.0);
+    }
+
+    #[test]
+    fn nan_energy_propagates() {
+        let b = Barrier::new(4.0, 4.0, 2.0).unwrap();
+        assert!(b.log_transmission(f64::NAN).is_nan());
+        assert_eq!(b.log_transmission(0.0), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn p_close_to_one_is_accurate() {
+        // far above the top, 1 − P is computed directly; P + (1 − P) must be 1
+        let b = Barrier::new(20.0, 20.0, 0.01).unwrap();
+        let (lp, lq) = b.log_p_and_q(25.0);
+        assert!((lp.exp() + lq.exp() - 1.0).abs() < 1e-15);
     }
 }
