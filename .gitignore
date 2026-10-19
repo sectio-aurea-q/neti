@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 validation/grid_in.csv
 validation/*_in.csv
+grid_in.csv
