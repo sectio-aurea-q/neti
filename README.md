@@ -141,4 +141,4 @@ Tools: Rust, Arb / python-flint, mpmath, Claude.
 
 ## License
 
-LICENSE_LINE
+Apache-2.0. If you use eckart-ref or its reference grid in published work, please cite it (see `CITATION.cff`).

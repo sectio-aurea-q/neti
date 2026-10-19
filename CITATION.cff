@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use eckart-ref or its certified reference grid, please cite it as below."
+title: "eckart-ref: accurate Eckart tunnelling coefficients validated against certified ball-arithmetic references"
+authors:
+  - family-names: Hackfort
+    given-names: Sabrina
+    orcid: "https://orcid.org/0009-0007-7458-2487"
+repository-code: "https://github.com/sectio-aurea-q/eckart-ref"
+license: Apache-2.0
+version: 0.1.0
+keywords:
+  - tunnelling
+  - Eckart barrier
+  - chemical kinetics
+  - transition state theory
+  - interval arithmetic
