@@ -5,6 +5,7 @@ authors:
   - family-names: Hackfort
     given-names: Sabrina
     orcid: "https://orcid.org/0009-0007-7458-2487"
+doi: "10.5281/zenodo.23485066"
 repository-code: "https://github.com/sectio-aurea-q/neti"
 license: Apache-2.0
 version: 0.1.0

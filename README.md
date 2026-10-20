@@ -1,5 +1,7 @@
 # NETI
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23485066.svg)](https://doi.org/10.5281/zenodo.23485066)
+
 *Named after Neti, the gatekeeper of the seven gates in Mesopotamian myth, who decides
 who passes through. Tunnelling is passage through a barrier that cannot be crossed
 classically.*
